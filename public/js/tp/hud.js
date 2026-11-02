@@ -34,7 +34,36 @@ function arte(img, fontes) {
 const artePersonagem = (img, id) => arte(img, id
   ? [`/img/chars-hero/${id}.webp`, `/img/chars/${id}.webp`, `/img/chars/avatars/${id}.webp`]
   : []);
-const arteJogador = (img, pid) => arte(img, PLAYER_ID.test(pid || '') ? [`/api/social-avatar?id=${pid}`] : []);
+const avatarCache = new Map();
+const comoDataUrl = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result));
+  reader.onerror = () => reject(reader.error || new Error('avatar inválido'));
+  reader.readAsDataURL(blob);
+});
+function avatarUrl(pid) {
+  if (!PLAYER_ID.test(pid || '')) return Promise.resolve(VAZIO);
+  const acerto = avatarCache.get(pid);
+  if (acerto) return acerto;
+  const pendente = fetch(`/api/social-avatar?id=${encodeURIComponent(pid)}`, { credentials: 'same-origin' })
+    .then((res) => {
+      if (!res.ok) throw new Error(`http ${res.status}`);
+      return res.blob();
+    })
+    .then(comoDataUrl)
+    .catch(() => { avatarCache.delete(pid); return VAZIO; });
+  avatarCache.set(pid, pendente);
+  return pendente;
+}
+function arteJogador(img, pid) {
+  const token = String((Number(img.dataset.arteToken) || 0) + 1);
+  img.dataset.arteToken = token;
+  img.onerror = null;
+  img.src = VAZIO;
+  avatarUrl(pid).then((src) => {
+    if (img.dataset.arteToken === token) img.src = src;
+  });
+}
 const livre = (t) => !(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable || t.closest?.('[data-entrada-propria]')));
 
 let jogo = null;
@@ -104,7 +133,7 @@ function montarHud(hud) {
   }
   const acoes = $('hud-actions');
   if (acoes) acoes.prepend(el('span', 'tp-hud-cam'));
-  /* Teclas lidas do game.js (_input) e do ping deste módulo; nenhuma muda aqui. */
+  /* Teclas lidas do game.js (_input) e do ping deste módulo. */
   const dicas = el('div', 'tp-hud-dicas');
   dicas.title = tr('Guia inicial: três ações, comandos completos com ALT');
   const dica = (teclas, txt, passo = null) => {
@@ -119,7 +148,10 @@ function montarHud(hud) {
   dica('MOUSE 1', 'Atirar', 1);
   dica('R', 'Recarregar', 2);
   dica('E', 'pegar');
-  dica('B', 'câmera');
+  dica('B', 'comprar');
+  dica(',/.', 'munição');
+
+  dica('N', 'câmera');
   dica('F', 'ping');
   dica('Z/X/V', 'rádio');
   dica('Y/U', 'chat').dataset.chat = '';
@@ -133,7 +165,7 @@ const CAMERA = { first: '1ª PESSOA', third: '3ª PESSOA', shoulder: 'OMBRO' };
 function atualizarCamera(g) {
   const chip = document.querySelector('#hud-actions .tp-hud-cam');
   if (!chip) return;
-  const txt = `${tr(CAMERA[g.camView] || CAMERA.first)} · B`;
+  const txt = `${tr(CAMERA[g.camView] || CAMERA.first)} · N`;
   if (chip.textContent !== txt) chip.textContent = txt;
 }
 
@@ -446,38 +478,29 @@ function montarToque(raiz) {
     const b = el('button', `tp-toque ${cls}`, txt);
     b.type = 'button';
     b.setAttribute('aria-label', rotulo);
-    b.addEventListener('touchstart', (e) => { e.preventDefault(); const g = window.__game; if (g) inicio(g); }, { passive: false });
-    if (fim) {
-      const h = (e) => { e.preventDefault(); const g = window.__game; if (g) fim(g); };
-      b.addEventListener('touchend', h);
-      b.addEventListener('touchcancel', h);
-    }
+    let dedo = null;
+    const solta = () => { dedo = null; const g = window.__game; if (g) fim?.(g); };
+    raiz.addEventListener('touchreset', solta);
+    b.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const g = window.__game;
+      if (dedo !== null || !g?._acceptInput?.()) return;
+      dedo = e.changedTouches[0].identifier; inicio(g);
+    }, { passive: false });
+    const h = (e) => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === dedo) solta(); };
+    b.addEventListener('touchend', h); b.addEventListener('touchcancel', h);
     raiz.append(b);
     return b;
   };
-  /* ATIRA também MIRA: o arrasto do gatilho vai para o `_touchLook` do game.js, senão
-     corrigir a mira na rajada exige soltar o tiro (docs/mobile/CONTROLES-TOQUE.md). */
-  const atira = botao('tp-toque-atira', tr('ATIRA'), tr('Atirar'), (g) => {
-    if (!g._acceptInput?.()) return;
-    g.mouseDown0 = true;
-    g._tryShoot?.();
-  }, (g) => { g.mouseDown0 = false; });
+  const atira = raiz.querySelector('.touch-fire');
   if (atira) {
-    let dedo = null, ax = 0, ay = 0;
-    atira.addEventListener('touchstart', (e) => { const t = e.changedTouches[0]; dedo = t.identifier; ax = t.clientX; ay = t.clientY; }, { passive: true });
-    atira.addEventListener('touchmove', (e) => {
-      for (const t of e.changedTouches) {
-        if (t.identifier !== dedo) continue;
-        const dx = t.clientX - ax, dy = t.clientY - ay; ax = t.clientX; ay = t.clientY;
-        window.__game?._touchLook?.(dx, dy);
-      }
-      e.preventDefault();
-    }, { passive: false });
-    const solta = (e) => { for (const t of e.changedTouches) if (t.identifier === dedo) dedo = null; };
-    atira.addEventListener('touchend', solta);
-    atira.addEventListener('touchcancel', solta);
+    atira.classList.add('tp-toque', 'tp-toque-atira');
+    atira.textContent = tr('ATIRA');
+    atira.setAttribute('aria-label', tr('Atirar'));
   }
   botao('tp-toque-pula', tr('PULA'), tr('Pular'), (g) => { g.keys.Space = true; }, (g) => { g.keys.Space = false; });
+  botao('tp-toque-camera', '', tr('Alternar câmera'), (g) => g._toggleCamView());
+  raiz.querySelector('.tp-toque-camera').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/></svg>';
   botao('tp-toque-ping', 'PING', 'Ping', () => marcarPing());
   botao('tp-toque-placar', '', tr('Placar'), (g) => g._showScoreboard?.(!!g.el?.scoreboard?.classList.contains('hidden')));
   raiz.querySelector('.tp-toque-placar').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
