@@ -57,6 +57,9 @@ if (reporter) {
 const { MAPS } = await import('./harness.mjs');
 const { COMMON_MAP_PROPS, mapPropIds } = await import('../../public/js/mapprops.js');
 let source = readFileSync(new URL('../../public/js/main.js', import.meta.url), 'utf8');
+// O gotoMap pós-#1160 rotula o modo de objetivo: a régua leva a const real de main.js.
+const modoObjetivo = source.match(/^const modoObjetivoAtual = .*;$/m)?.[0];
+assert(modoObjetivo, 'modoObjetivoAtual real presente em main');
 const begin = source.indexOf('function menuProps(mapa) {'), end = source.indexOf('// Rotas compartilhadas,', begin);
 const gotoBegin = source.indexOf('function gotoMap('), gotoEnd = source.indexOf('function stepMap(', gotoBegin);
 assert(begin >= 0 && end > begin && gotoBegin > end && gotoEnd > gotoBegin, 'fronteiras das funções reais');
@@ -90,7 +93,7 @@ const fixture = () => {
     MAPAS_MENU: Object.keys(MAPS), mapIdx: 0, settings: {}, mapNameEl: {}, modoEscolhido: true,
     resolveMapId: id => id, saveSettings() {}, setMapThumb() {}, setMapMode() {}, renderMapScreen() {}, hubNavigate() {},
   });
-  vm.runInContext(block + '\n' + go, context);
+  vm.runInContext(modoObjetivo + '\n' + block + '\n' + go, context);
   return { context, events, release };
 };
 await check('deps: Praça carrega somente seus props declarados', () => {
