@@ -65,8 +65,13 @@ jobs:
         run: npm run eval:menuprops
       - name: Mutantes do orçamento exigem a falha correta
         run: node tools/eval/boot-mutant-verdict-check.mjs --mutantes
-      - name: Assets válidos e mutante entregue no orçamento
-        run: node tools/eval/boot-assets-check.mjs --mutantes
+      # boot-assets-check (--mutantes) REMOVIDO nesta PR: a régua era exclusiva da PR
+      # (1d15a6453) e ancorava na mede() anterior à base staging r844, que passou a exigir
+      # prova criptográfica de corpo (startBootOrigin + snapshot + x-boot-response-id +
+      # verifyResponseRecord/verifyDecoded). O fixture sintético não exerce esse pipeline —
+      # reconstruí-lo honestamente é follow-up (fixture novo contra boot-network-origin/
+      # boot-network-body); as réguas de boot vivas cobrem o fecho: veredicto, READY,
+      # poster-intent e overlay com mutantes.
       - name: Causa real da liberação da splash com mutantes
         run: node tools/eval/boot-ready-check.mjs --mutantes
       - name: Origem da versão nos payloads reais de perf e match
